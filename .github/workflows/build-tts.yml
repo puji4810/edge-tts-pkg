@@ -16,6 +16,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false  # 添加这行，防止一个任务失败时取消其他任务
       matrix:
         include:
           - os: windows-latest
@@ -56,48 +57,41 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install edge-tts pydub
-
-      - name: Create requirements.txt for edge-tts-pkg
-        run: |
-          cd edge-tts-pkg
-          echo "edge-tts>=6.1.0" > requirements.txt
-          echo "pydub>=0.25.0" >> requirements.txt
+          pip install -r requirements.txt
 
       - name: Build executable with PyInstaller
         run: |
-          cd edge-tts-pkg
           pyinstaller --onefile --name edge-tts run_tts.py
 
       - name: Rename artifact (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cd edge-tts-pkg/dist
+          cd dist
           mv edge-tts.exe ${{ matrix.build_name }}.exe
 
       - name: Rename artifact (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cd edge-tts-pkg/dist
+          cd dist
           mv edge-tts ${{ matrix.build_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.build_name }}
-          path: edge-tts-pkg/dist/${{ matrix.build_name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          path: dist/${{ matrix.build_name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
 
       - name: Test executable (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cd edge-tts-pkg/dist
+          cd dist
           echo "Hello World" > test_input.txt
           ./${{ matrix.build_name }}.exe --text-file test_input.txt --output test_output.wav --voice en-US-SteffanNeural
 
       - name: Test executable (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cd edge-tts-pkg/dist
+          cd dist
           echo "Hello World" > test_input.txt
           chmod +x ${{ matrix.build_name }}
           ./${{ matrix.build_name }} --text-file test_input.txt --output test_output.wav --voice en-US-SteffanNeural
