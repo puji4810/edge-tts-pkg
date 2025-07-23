@@ -1,0 +1,148 @@
+name: Build EdgeTTS CLI
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+      - tts-local
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: edge-tts.exe
+            build_name: edge-tts-windows
+          - os: ubuntu-latest
+            artifact_name: edge-tts
+            build_name: edge-tts-linux
+          - os: macos-latest
+            artifact_name: edge-tts
+            build_name: edge-tts-macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install system dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install ffmpeg
+
+      - name: Install system dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install edge-tts pydub
+
+      - name: Create requirements.txt for edge-tts-pkg
+        run: |
+          cd edge-tts-pkg
+          echo "edge-tts>=6.1.0" > requirements.txt
+          echo "pydub>=0.25.0" >> requirements.txt
+
+      - name: Build executable with PyInstaller
+        run: |
+          cd edge-tts-pkg
+          pyinstaller --onefile --name edge-tts run_tts.py
+
+      - name: Rename artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd edge-tts-pkg/dist
+          mv edge-tts.exe ${{ matrix.build_name }}.exe
+
+      - name: Rename artifact (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd edge-tts-pkg/dist
+          mv edge-tts ${{ matrix.build_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.build_name }}
+          path: edge-tts-pkg/dist/${{ matrix.build_name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+      - name: Test executable (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd edge-tts-pkg/dist
+          echo "Hello World" > test_input.txt
+          ./${{ matrix.build_name }}.exe --text-file test_input.txt --output test_output.wav --voice en-US-SteffanNeural
+
+      - name: Test executable (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd edge-tts-pkg/dist
+          echo "Hello World" > test_input.txt
+          chmod +x ${{ matrix.build_name }}
+          ./${{ matrix.build_name }} --text-file test_input.txt --output test_output.wav --voice en-US-SteffanNeural
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/edge-tts-windows/edge-tts-windows.exe
+            artifacts/edge-tts-linux/edge-tts-linux
+            artifacts/edge-tts-macos/edge-tts-macos
+          tag_name: ${{ github.ref_name }}
+          name: EdgeTTS CLI ${{ github.ref_name }}
+          body: |
+            ## EdgeTTS CLI ${{ github.ref_name }}
+
+            跨平台Edge TTS命令行工具
+
+            ### 下载说明
+            - `edge-tts-windows.exe` - Windows 可执行文件
+            - `edge-tts-linux` - Linux 可执行文件  
+            - `edge-tts-macos` - macOS 可执行文件
+
+            ### 使用方法
+            ```bash
+            # 直接传递文本
+            ./edge-tts --text "Hello World" --output output.wav
+
+            # 从文件读取文本
+            ./edge-tts --text-file input.txt --output output.wav
+
+            # 指定语音和参数
+            ./edge-tts --text "你好世界" --voice zh-CN-XiaoxiaoNeural --output output.wav --volume 80 --sample_rate 22050
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
