@@ -105,7 +105,7 @@ jobs:
             -w /workspace \
             python:3.11-slim \
             bash -c "
-              apt-get update && apt-get install -y gcc g++ && \
+              apt-get update && apt-get install -y gcc g++ zlib1g-dev libffi-dev && \
               pip install --upgrade pip && \
               pip install pyinstaller && \
               pip install -r requirements.txt && \
@@ -122,7 +122,7 @@ jobs:
             -w /workspace \
             python:3.11-slim \
             bash -c "
-              apt-get update && apt-get install -y gcc g++ && \
+              apt-get update && apt-get install -y gcc g++ zlib1g-dev libffi-dev && \
               pip install --upgrade pip && \
               pip install pyinstaller && \
               pip install -r requirements.txt && \
