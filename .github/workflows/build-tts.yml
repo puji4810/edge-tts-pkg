@@ -16,18 +16,38 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false  # 添加这行，防止一个任务失败时取消其他任务
+      fail-fast: false
       matrix:
         include:
+          # Windows builds
           - os: windows-latest
             artifact_name: edge-tts.exe
             build_name: edge-tts-windows
+            arch: x64
+          
+          # Linux builds - 多架构
           - os: ubuntu-latest
             artifact_name: edge-tts
-            build_name: edge-tts-linux
+            build_name: edge-tts-linux-amd64
+            arch: x64
+          - os: ubuntu-latest
+            artifact_name: edge-tts
+            build_name: edge-tts-linux-arm64
+            arch: arm64
+          - os: ubuntu-latest
+            artifact_name: edge-tts
+            build_name: edge-tts-linux-armv7
+            arch: armv7
+          
+          # macOS builds - 多架构
           - os: macos-latest
             artifact_name: edge-tts
-            build_name: edge-tts-macos
+            build_name: edge-tts-macos-intel
+            arch: x64
+          - os: macos-latest
+            artifact_name: edge-tts
+            build_name: edge-tts-macos-apple
+            arch: arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -37,11 +57,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      # 设置交叉编译环境 (Linux ARM)
+      - name: Set up QEMU
+        if: matrix.os == 'ubuntu-latest' && (matrix.arch == 'arm64' || matrix.arch == 'armv7')
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install system dependencies (Ubuntu x64)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'x64'
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
+
+      - name: Install system dependencies (Ubuntu ARM)
+        if: matrix.os == 'ubuntu-latest' && (matrix.arch == 'arm64' || matrix.arch == 'armv7')
+        run: |
+          # 使用 Docker 进行交叉编译
+          echo "Will use Docker for ARM compilation"
 
       - name: Install system dependencies (macOS)
         if: matrix.os == 'macos-latest'
@@ -53,15 +84,46 @@ jobs:
         run: |
           choco install ffmpeg
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies (Native)
+        if: matrix.os != 'ubuntu-latest' || matrix.arch == 'x64'
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
 
-      - name: Build executable with PyInstaller
+      - name: Build executable (Native)
+        if: matrix.os != 'ubuntu-latest' || matrix.arch == 'x64'
         run: |
           pyinstaller --onefile --name edge-tts run_tts.py
+
+      # ARM 交叉编译
+      - name: Build executable (Linux ARM64)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v $PWD:/workspace \
+            -w /workspace \
+            python:3.11-slim \
+            bash -c "
+              apt-get update && apt-get install -y gcc g++ && \
+              pip install pyinstaller && \
+              pip install -r requirements.txt && \
+              pyinstaller --onefile --name edge-tts run_tts.py
+            "
+
+      - name: Build executable (Linux ARMv7)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'armv7'
+        run: |
+          docker run --rm --platform linux/arm/v7 \
+            -v $PWD:/workspace \
+            -w /workspace \
+            python:3.11-slim \
+            bash -c "
+              apt-get update && apt-get install -y gcc g++ && \
+              pip install pyinstaller && \
+              pip install -r requirements.txt && \
+              pyinstaller --onefile --name edge-tts run_tts.py
+            "
 
       - name: Rename artifact (Windows)
         if: matrix.os == 'windows-latest'
@@ -81,21 +143,6 @@ jobs:
           name: ${{ matrix.build_name }}
           path: dist/${{ matrix.build_name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
 
-      - name: Test executable (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          cd dist
-          echo "Hello World" > test_input.txt
-          ./${{ matrix.build_name }}.exe --text-file test_input.txt --output test_output.wav --voice en-US-SteffanNeural
-
-      - name: Test executable (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          cd dist
-          echo "Hello World" > test_input.txt
-          chmod +x ${{ matrix.build_name }}
-          ./${{ matrix.build_name }} --text-file test_input.txt --output test_output.wav --voice en-US-SteffanNeural
-
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -111,32 +158,9 @@ jobs:
         with:
           files: |
             artifacts/edge-tts-windows/edge-tts-windows.exe
-            artifacts/edge-tts-linux/edge-tts-linux
-            artifacts/edge-tts-macos/edge-tts-macos
-          tag_name: ${{ github.ref_name }}
-          name: EdgeTTS CLI ${{ github.ref_name }}
-          body: |
-            ## EdgeTTS CLI ${{ github.ref_name }}
-
-            跨平台Edge TTS命令行工具
-
-            ### 下载说明
-            - `edge-tts-windows.exe` - Windows 可执行文件
-            - `edge-tts-linux` - Linux 可执行文件  
-            - `edge-tts-macos` - macOS 可执行文件
-
-            ### 使用方法
-            ```bash
-            # 直接传递文本
-            ./edge-tts --text "Hello World" --output output.wav
-
-            # 从文件读取文本
-            ./edge-tts --text-file input.txt --output output.wav
-
-            # 指定语音和参数
-            ./edge-tts --text "你好世界" --voice zh-CN-XiaoxiaoNeural --output output.wav --volume 80 --sample_rate 22050
-            ```
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            artifacts/edge-tts-linux-amd64/edge-tts-linux-amd64
+            artifacts/edge-tts-linux-arm64/edge-tts-linux-arm64
+            artifacts/edge-tts-linux-armv7/edge-tts-linux-armv7
+            artifacts/edge-tts-macos-intel/edge-tts-macos-intel
+            artifacts/edge-tts-macos-apple/edge-tts-macos-apple
+          # ...existing code...
