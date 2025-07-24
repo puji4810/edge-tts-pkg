@@ -24,7 +24,7 @@ jobs:
             artifact_name: edge-tts.exe
             build_name: edge-tts-windows
             arch: x64
-          
+
           # Linux builds - 多架构
           - os: ubuntu-latest
             artifact_name: edge-tts
@@ -38,7 +38,7 @@ jobs:
             artifact_name: edge-tts
             build_name: edge-tts-linux-armv7
             arch: armv7
-          
+
           # macOS builds - 多架构
           - os: macos-latest
             artifact_name: edge-tts
@@ -106,9 +106,12 @@ jobs:
             python:3.11-slim \
             bash -c "
               apt-get update && apt-get install -y gcc g++ && \
+              pip install --upgrade pip && \
               pip install pyinstaller && \
               pip install -r requirements.txt && \
-              pyinstaller --onefile --name edge-tts run_tts.py
+              pyinstaller --onefile --name edge-tts run_tts.py && \
+              cd dist && \
+              mv edge-tts edge-tts-linux-arm64
             "
 
       - name: Build executable (Linux ARMv7)
@@ -120,9 +123,12 @@ jobs:
             python:3.11-slim \
             bash -c "
               apt-get update && apt-get install -y gcc g++ && \
+              pip install --upgrade pip && \
               pip install pyinstaller && \
               pip install -r requirements.txt && \
-              pyinstaller --onefile --name edge-tts run_tts.py
+              pyinstaller --onefile --name edge-tts run_tts.py && \
+              cd dist && \
+              mv edge-tts edge-tts-linux-armv7
             "
 
       - name: Rename artifact (Windows)
@@ -132,7 +138,7 @@ jobs:
           mv edge-tts.exe ${{ matrix.build_name }}.exe
 
       - name: Rename artifact (Unix)
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-latest'&& (matrix.os != 'ubuntu-latest' || matrix.arch == 'x64')
         run: |
           cd dist
           mv edge-tts ${{ matrix.build_name }}
@@ -163,4 +169,3 @@ jobs:
             artifacts/edge-tts-linux-armv7/edge-tts-linux-armv7
             artifacts/edge-tts-macos-intel/edge-tts-macos-intel
             artifacts/edge-tts-macos-apple/edge-tts-macos-apple
-          # ...existing code...
